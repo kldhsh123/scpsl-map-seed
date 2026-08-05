@@ -12,17 +12,6 @@ The bundled raw templates were exported with the [`SCPSL_Template_export`](https
 npm install kldhsh123/scpsl-map-seed#v1.0.0
 ```
 
-The package is scoped as `@scpsl-tools/map-seed` 
-The explicit dependency form is:
-
-```json
-{
-  "dependencies": {
-    "@scpsl-tools/map-seed": "github:kldhsh123/scpsl-map-seed#v1.0.0"
-  }
-}
-```
-
 ## API
 
 ```js
