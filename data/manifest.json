@@ -1,0 +1,6 @@
+{
+  "defaultVersion": "14.2.7",
+  "versions": {
+    "14.2.7": "mapgen-raw-14.2.7.json"
+  }
+}
