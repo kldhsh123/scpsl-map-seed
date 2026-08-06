@@ -68,3 +68,10 @@ for (const edge of map.connectorAdjacency) {
 ```
 
 Map templates are bundled inside the tagged package. Consumers only provide a seed. The package uses the bundled template's active holiday by default.
+
+
+## License
+
+Copyright (c) kldhsh123. All rights reserved.
+
+Licensed under the [Apache-2.0 License](LICENSE).
