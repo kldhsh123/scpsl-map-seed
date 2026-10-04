@@ -9,7 +9,7 @@ The bundled raw templates were exported with the [`SCPSL_Template_export`](https
 ## Install a tagged GitHub version
 
 ```bash
-npm install kldhsh123/scpsl-map-seed#v1.0.0
+npm install kldhsh123/scpsl-map-seed#v1.0.1
 ```
 
 ## API
