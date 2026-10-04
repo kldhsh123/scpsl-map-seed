@@ -10,17 +10,17 @@ export function generateFromTemplate(template, seed, options = {}) {
   const holiday = normalizeHoliday(options.holiday ?? template.game?.activeHoliday ?? 'None');
   const gridScale = template.gridScale ?? { x: 15, y: 100, z: 15 };
   const random = new DotNetRandom(normalizedSeed);
-  const templates = new Map(template.roomTemplates.map((room) => [room.id, room]));
-  const generatorResults = new Map();
+  const templates = template._roomById ?? new Map(template.roomTemplates.map((room) => [room.id, room]));
+  const generatorResults = [];
   const generatedRooms = [];
   const generationTrace = [];
   const atlasSelections = [];
 
-  const generators = [...template.generators].sort((a, b) => a.index - b.index);
+  const generators = template._generators ?? [...template.generators].sort((a, b) => a.index - b.index);
   for (const generator of generators) {
     if (generator.kind === 'atlas' || generator.kind === 'entrance') {
       const result = generateAtlas(generator, { random, templates, holiday, template, generatorResults, gridScale });
-      generatorResults.set(generator.index, result);
+      generatorResults[generator.index] = result;
       generatedRooms.push(...result.rooms);
       generationTrace.push(...result.trace);
       atlasSelections.push(result.atlasSelection);
@@ -84,24 +84,25 @@ export function generateFromTemplate(template, seed, options = {}) {
 
 function generateAtlas(generator, context) {
   const { random, templates, holiday, template, generatorResults, gridScale } = context;
-  const atlasIndex = random.next(generator.atlases.length);
-  const atlas = generator.atlases[atlasIndex];
-  const interpreted = interpretAtlas(atlas, random, template.glyphShapePairs);
+  const atlases = generator._compiledAtlases ?? generator.atlases;
+  const atlasIndex = random.next(atlases.length);
+  const atlas = atlases[atlasIndex];
+  const interpreted = interpretAtlas(atlas, random, template.glyphShapePairs ?? []);
   const baseCells = interpreted.map(cloneCell);
   const positionOffset = generator.kind === 'entrance'
     ? getEntranceOffset(generator, baseCells, generatorResults, gridScale)
     : { x: 0, y: 0, z: 0 };
 
   shuffle(interpreted, random);
-  const spawned = [];
-  const counts = new Map();
+  const spawned = new Map();
+  const counts = new Uint16Array(template.roomTemplates.length);
   const rooms = [];
   const trace = [];
 
   for (let spawnedIndex = 0; spawnedIndex < interpreted.length; spawnedIndex += 1) {
     const cell = interpreted[spawnedIndex];
     const selected = selectRoom(generator, cell, templates, holiday, counts, spawned, random);
-    const duplicateId = counts.get(selected.template.id) ?? 0;
+    const duplicateId = counts[selected.template._index];
     const position = {
       x: cell.coords.x * gridScale.x + positionOffset.x,
       y: generator.zoneHeight + positionOffset.y,
@@ -118,8 +119,8 @@ function generateAtlas(generator, context) {
       rotationY,
       gridScale
     }));
-    spawned.push({ templateId: selected.template.id, coords: cell.coords });
-    counts.set(selected.template.id, duplicateId + 1);
+    spawned.set(cell._key, selected.template._index);
+    counts[selected.template._index] = duplicateId + 1;
     trace.push({
       generatorIndex: generator.index,
       spawnedIndex,
@@ -184,6 +185,20 @@ function generateSingleRoom(generator, { templates, holiday, gridScale }) {
 }
 
 function interpretAtlas(atlas, random, pairs) {
+  if (atlas.cells) {
+    const minY = atlas.minY ?? Math.min(...atlas.cells.map((cell) => cell.coords.y));
+    const maxY = atlas.maxY ?? Math.max(...atlas.cells.map((cell) => cell.coords.y));
+    const stride = atlas.keyStride ?? maxY - minY + 3;
+    return atlas.cells.map((cell) => ({
+      coords: { ...cell.coords },
+      roomShape: cell.roomShape,
+      specificRooms: cell.specificRooms,
+      rotationY: cell.rotations[random.next(cell.rotations.length)],
+      _key: cell.key ?? cell.coords.x * stride + cell.coords.y,
+      _keyStride: stride,
+      _candidateKey: cell.candidateKey ?? `${enumValue(cell.roomShape)}:${cell.specificRooms.map(enumValue).join(',')}`
+    }));
+  }
   const bytes = Buffer.from(atlas.rgbaBase64, 'base64');
   const result = [];
   let step = 1;
@@ -226,28 +241,55 @@ function selectRoom(generator, cell, templates, holiday, counts, spawned, random
   const weighted = [];
   let totalWeight = 0;
 
-  for (const baseId of generator.compatibleRoomTemplateIds) {
+  let candidates = generator._compiledCandidates?.[holiday.value] ?? generator.compatibleRoomTemplateIds.map((baseId) => {
     const baseTemplate = templates.get(baseId);
     const resolved = resolveHoliday(baseTemplate, templates, holiday);
+    return { template: resolved.template, baseTemplate, resolution: resolved.resolution };
+  });
+  const candidateSetCache = generator._candidateSets?.[holiday.value];
+  if (candidateSetCache) {
+    const candidateKey = cell._candidateKey ?? `${enumValue(cell.roomShape)}:${cell.specificRooms.map(enumValue).join(',')}`;
+    const cached = candidateSetCache.get(candidateKey);
+    if (cached) {
+      candidates = cached;
+    } else {
+      candidates = candidates.filter(({ template: candidate }) =>
+        special === Boolean(candidate.specialRoom) &&
+        (!special || cell.specificRooms.some((name) => enumValue(name) === enumValue(candidate.name))) &&
+        enumValue(candidate.shape) === enumValue(cell.roomShape)
+      );
+      candidateSetCache.set(candidateKey, candidates);
+    }
+  }
+  for (const resolved of candidates) {
+    const baseTemplate = resolved.baseTemplate;
     const candidate = resolved.template;
-    const count = counts.get(candidate.id) ?? 0;
-    const nameMatches = !special || cell.specificRooms.some((name) => enumValue(name) === enumValue(candidate.name));
-    const valid = special === Boolean(candidate.specialRoom) &&
-      nameMatches &&
-      enumValue(candidate.shape) === enumValue(cell.roomShape) &&
-      count < candidate.maxAmount;
-    if (!valid) continue;
+    const count = counts[candidate._index];
+    if (count >= candidate.maxAmount) continue;
+    if (!candidateSetCache) {
+      const nameMatches = !special || cell.specificRooms.some((name) => enumValue(name) === enumValue(candidate.name));
+      if (special !== Boolean(candidate.specialRoom) || !nameMatches || enumValue(candidate.shape) !== enumValue(cell.roomShape)) continue;
+    }
     if (count < candidate.minAmount) {
       return { template: candidate, baseTemplate, resolution: resolved.resolution };
     }
 
     let weight = Math.fround(candidate.chanceMultiplier);
-    for (const previous of spawned) {
-      const adjacent = (previous.coords.x === cell.coords.x && Math.abs(previous.coords.y - cell.coords.y) === 1) ||
-        (previous.coords.y === cell.coords.y && Math.abs(previous.coords.x - cell.coords.x) === 1);
-      if (previous.templateId === candidate.id && adjacent) {
-        weight = Math.fround(weight * Math.fround(candidate.adjacentChanceMultiplier));
+    let adjacentCount = 0;
+    if (spawned instanceof Map) {
+      adjacentCount += spawned.get(cell._key + cell._keyStride) === candidate._index ? 1 : 0;
+      adjacentCount += spawned.get(cell._key - cell._keyStride) === candidate._index ? 1 : 0;
+      adjacentCount += spawned.get(cell._key + 1) === candidate._index ? 1 : 0;
+      adjacentCount += spawned.get(cell._key - 1) === candidate._index ? 1 : 0;
+    } else {
+      for (const previous of spawned) {
+        const adjacent = (previous.coords.x === cell.coords.x && Math.abs(previous.coords.y - cell.coords.y) === 1) ||
+          (previous.coords.y === cell.coords.y && Math.abs(previous.coords.x - cell.coords.x) === 1);
+        if (previous.templateId === candidate.id && adjacent) adjacentCount += 1;
       }
+    }
+    for (let adjacent = 0; adjacent < adjacentCount; adjacent += 1) {
+        weight = Math.fround(weight * Math.fround(candidate.adjacentChanceMultiplier));
     }
     totalWeight = Math.fround(totalWeight + weight);
     weighted.push({ template: candidate, baseTemplate, resolution: resolved.resolution, weight });
@@ -271,7 +313,7 @@ function selectRoom(generator, cell, templates, holiday, counts, spawned, random
 }
 
 function getEntranceOffset(generator, cells, generatorResults, gridScale) {
-  const hcz = generatorResults.get(generator.hczGeneratorIndex);
+  const hcz = generatorResults[generator.hczGeneratorIndex];
   if (!hcz) throw new MapGenerationError('Entrance generator requires HCZ to run first');
   const checkpoints = (items) => items.filter((cell) =>
     enumValue(cell.roomShape) === STRAIGHT_SHAPE_VALUE &&
@@ -335,47 +377,73 @@ function makeRoom({ generator, spawnedIndex, atlasCell, selected, duplicateId, p
 }
 
 function makeConnectorInstances(template, position, rotationY) {
-  return (template.connectorPoints ?? []).filter((point) => point.activeSelf !== false).map((point, fallbackIndex) => {
-    const index = point.index ?? fallbackIndex;
-    const localPosition = {
-      x: point.localPosition?.x ?? 0,
-      y: point.localPosition?.y ?? 0,
-      z: point.localPosition?.z ?? 0
-    };
-    const localRotation = normalizeQuaternion(point.localRotation);
-    const worldOffset = rotateYaw(localPosition, rotationY);
-    const worldPosition = {
-      x: position.x + worldOffset.x,
-      y: position.y + localPosition.y,
-      z: position.z + worldOffset.z
-    };
-    const worldRotation = multiplyQuaternion(yawQuaternion(rotationY), localRotation);
-    return {
-      index,
+  const connectorCache = template._connectorTransforms;
+  let compiled = connectorCache?.get(rotationY);
+  if (!compiled) {
+    const points = template._compiledConnectors ?? (template.connectorPoints ?? []).filter((point) => point.activeSelf !== false).map((point, fallbackIndex) => ({
+      index: point.index ?? fallbackIndex,
       runtimeType: point.runtimeType ?? 'unknown',
-      localPosition,
-      localRotation,
-      worldPosition,
-      worldRotation,
-      direction: directionFromOffset(worldOffset),
-      connectedRoomIds: []
-    };
-  });
+      localPosition: { x: point.localPosition?.x ?? 0, y: point.localPosition?.y ?? 0, z: point.localPosition?.z ?? 0 },
+      localRotation: normalizeQuaternion(point.localRotation)
+    }));
+    compiled = points.map((point) => {
+      const worldOffset = rotateYaw(point.localPosition, rotationY);
+      return {
+        index: point.index,
+        runtimeType: point.runtimeType,
+        localPosition: point.localPosition,
+        localRotation: point.localRotation,
+        worldOffset,
+        worldRotation: multiplyQuaternion(yawQuaternion(rotationY), point.localRotation),
+        direction: directionFromOffset(worldOffset)
+      };
+    });
+    connectorCache?.set(rotationY, compiled);
+  }
+  return compiled.map((point) => ({
+    index: point.index,
+    runtimeType: point.runtimeType,
+    localPosition: { ...point.localPosition },
+    localRotation: { ...point.localRotation },
+    worldPosition: { x: position.x + point.worldOffset.x, y: position.y + point.localPosition.y, z: position.z + point.worldOffset.z },
+    worldRotation: { ...point.worldRotation },
+    direction: point.direction,
+    connectedRoomIds: []
+  }));
 }
 
 function connectSpatialNeighbors(rooms) {
-  const byCell = new Map();
+  let minZ = Infinity;
+  let maxZ = -Infinity;
   for (const room of rooms) {
     if (room.zone.value === 4 || room.zone.value === 5) continue;
-    byCell.set(`${room.zone.value}:${room.grid.x}:${room.grid.z}`, room);
+    if (room.grid.z < minZ) minZ = room.grid.z;
+    if (room.grid.z > maxZ) maxZ = room.grid.z;
+  }
+  const stride = maxZ - minZ + 3;
+  const byZone = new Map();
+  for (const room of rooms) {
+    if (room.zone.value === 4 || room.zone.value === 5) continue;
+    let byCell = byZone.get(room.zone.value);
+    if (!byCell) {
+      byCell = new Map();
+      byZone.set(room.zone.value, byCell);
+    }
+    byCell.set(room.grid.x * stride + room.grid.z, room);
   }
   const edges = [];
   for (const room of rooms) {
     if (room.zone.value === 4 || room.zone.value === 5) continue;
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const neighbor = byCell.get(`${room.zone.value}:${room.grid.x + dx}:${room.grid.z + dz}`);
-      if (neighbor && !room.adjacentRoomIds.includes(neighbor.id)) room.adjacentRoomIds.push(neighbor.id);
-    }
+    const byCell = byZone.get(room.zone.value);
+    const key = room.grid.x * stride + room.grid.z;
+    const east = byCell.get(key + stride);
+    const west = byCell.get(key - stride);
+    const north = byCell.get(key + 1);
+    const south = byCell.get(key - 1);
+    if (east) room.adjacentRoomIds.push(east.id);
+    if (west) room.adjacentRoomIds.push(west.id);
+    if (north) room.adjacentRoomIds.push(north.id);
+    if (south) room.adjacentRoomIds.push(south.id);
     room.adjacentRoomIds.sort();
     for (const neighborId of room.adjacentRoomIds) {
       if (room.id < neighborId) edges.push({ from: room.id, to: neighborId, kind: 'grid-adjacency' });
@@ -385,28 +453,53 @@ function connectSpatialNeighbors(rooms) {
 }
 
 function connectRoomConnectors(rooms) {
-  const candidates = [];
+  const connectors = [];
   for (let roomIndex = 0; roomIndex < rooms.length; roomIndex += 1) {
     const room = rooms[roomIndex];
-    for (const connector of room.connectorInstances) {
-      for (let otherIndex = roomIndex + 1; otherIndex < rooms.length; otherIndex += 1) {
-        const otherRoom = rooms[otherIndex];
-        for (const otherConnector of otherRoom.connectorInstances) {
-          const distance = Math.sqrt(distanceSquared(connector.worldPosition, otherConnector.worldPosition));
-          if (distance <= 1) candidates.push({ room, connector, otherRoom, otherConnector, distance });
-        }
+    for (let connectorOrder = 0; connectorOrder < room.connectorInstances.length; connectorOrder += 1) {
+      connectors.push({ room, connector: room.connectorInstances[connectorOrder], roomIndex, connectorOrder });
+    }
+  }
+  connectors.sort((a, b) => a.connector.worldPosition.x - b.connector.worldPosition.x ||
+    a.roomIndex - b.roomIndex || a.connectorOrder - b.connectorOrder);
+  const candidates = [];
+  let windowStart = 0;
+  for (let index = 0; index < connectors.length; index += 1) {
+    const current = connectors[index];
+    const position = current.connector.worldPosition;
+    while (position.x - connectors[windowStart].connector.worldPosition.x > 1) windowStart += 1;
+    for (let previousIndex = windowStart; previousIndex < index; previousIndex += 1) {
+      const previous = connectors[previousIndex];
+      if (previous.roomIndex === current.roomIndex) continue;
+      const otherPosition = previous.connector.worldPosition;
+      if (Math.abs(position.y - otherPosition.y) > 1 || Math.abs(position.z - otherPosition.z) > 1) continue;
+      const squared = distanceSquared(position, otherPosition);
+      if (squared <= 1) {
+        const from = previous.roomIndex < current.roomIndex ? previous : current;
+        const to = previous.roomIndex < current.roomIndex ? current : previous;
+        candidates.push({
+          room: from.room,
+          connector: from.connector,
+          roomIndex: from.roomIndex,
+          connectorOrder: from.connectorOrder,
+          otherRoom: to.room,
+          otherConnector: to.connector,
+          otherRoomIndex: to.roomIndex,
+          otherConnectorOrder: to.connectorOrder,
+          distance: Math.sqrt(squared)
+        });
       }
     }
   }
-  candidates.sort((a, b) => a.distance - b.distance || a.room.id.localeCompare(b.room.id) || a.connector.index - b.connector.index);
+  candidates.sort((a, b) => a.distance - b.distance ||
+    a.roomIndex - b.roomIndex || a.connectorOrder - b.connectorOrder ||
+    a.otherRoomIndex - b.otherRoomIndex || a.otherConnectorOrder - b.otherConnectorOrder);
   const paired = new Set();
   const edges = [];
   for (const candidate of candidates) {
-    const fromKey = `${candidate.room.id}:${candidate.connector.index}`;
-    const toKey = `${candidate.otherRoom.id}:${candidate.otherConnector.index}`;
-    if (paired.has(fromKey) || paired.has(toKey)) continue;
-    paired.add(fromKey);
-    paired.add(toKey);
+    if (paired.has(candidate.connector) || paired.has(candidate.otherConnector)) continue;
+    paired.add(candidate.connector);
+    paired.add(candidate.otherConnector);
     candidate.room.connectedRoomIds.push(candidate.otherRoom.id);
     candidate.otherRoom.connectedRoomIds.push(candidate.room.id);
     candidate.connector.connectedRoomIds.push(candidate.otherRoom.id);
@@ -458,6 +551,7 @@ function buildZones(rooms, gridScale) {
 }
 
 function resolveHoliday(baseTemplate, templates, holiday) {
+  if (baseTemplate._compiledHoliday) return baseTemplate._compiledHoliday[holiday.value];
   const variant = (baseTemplate.holidayVariants ?? []).find((item) => enumValue(item.holiday) === holiday.value);
   if (!variant) return { template: baseTemplate, resolution: 'base' };
   if (variant.resultState === 'serialized-null' || !variant.templateId) {

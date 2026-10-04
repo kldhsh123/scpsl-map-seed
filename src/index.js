@@ -16,8 +16,8 @@ export function getTemplateInfo() {
     activeHoliday: template.game.activeHoliday,
     rawSchemaVersion: template.schemaVersion,
     generatorCount: template.generators.length,
-    roomTemplateCount: template.roomTemplates.length,
-    glyphCount: template.glyphShapePairs.length,
-    atlasCount: template.generators.reduce((count, generator) => count + (generator.atlases?.length ?? 0), 0)
+    roomTemplateCount: template.templateStats?.roomTemplateCount ?? template.roomTemplates.length,
+    glyphCount: template.templateStats?.glyphCount ?? template.glyphShapePairs.length,
+    atlasCount: template.templateStats?.atlasCount ?? template.generators.reduce((count, generator) => count + (generator.atlases?.length ?? 0), 0)
   };
 }

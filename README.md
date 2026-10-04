@@ -69,6 +69,12 @@ for (const edge of map.connectorAdjacency) {
 
 Map templates are bundled inside the tagged package. Consumers only provide a seed. The package uses the bundled template's active holiday by default.
 
+The published package contains precompiled atlas cells rather than the exporter's Base64 RGBA atlas images. When replacing the raw export, regenerate that runtime data with:
+
+```bash
+npm run compile:templates
+```
+
 
 ## License
 

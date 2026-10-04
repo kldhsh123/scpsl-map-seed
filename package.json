@@ -12,8 +12,10 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["src", "data", "README.md", "LICENSE"],
+  "files": ["src", "data/manifest.json", "data/mapgen-compiled-14.2.7.json", "README.md", "LICENSE"],
   "scripts": {
+    "compile:templates": "node scripts/compile-template.mjs",
+    "benchmark": "node scripts/benchmark.mjs",
     "pack:check": "npm pack --dry-run"
   },
   "repository": {
