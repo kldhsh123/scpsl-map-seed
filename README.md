@@ -78,6 +78,9 @@ npm run compile:templates
 
 ## License
 
-Copyright (c) kldhsh123. All rights reserved.
+Copyright (c) 2026 kldhsh123. All rights reserved.
 
-Licensed under the [Apache-2.0 License](LICENSE).
+This project is licensed under the Apache License 2.0.
+
+You may use, modify, and redistribute this project under the terms of the Apache-2.0 License.
+See the [LICENSE](LICENSE) file for details.
