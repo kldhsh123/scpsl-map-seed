@@ -1,6 +1,6 @@
 {
   "name": "@scpsl-tools/map-seed",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Generate deterministic SCP: Secret Laboratory maps from a seed.",
   "type": "module",
   "engines": { "node": ">=20" },
