@@ -33,7 +33,7 @@ The generator returns both the atlas cell (`room.atlasCell`) and final world-spa
 - `seed`: a positive signed 32-bit integer (`1` to `2147483647`), as a number or a numeric string.
 - `options.holiday` (optional): `None`, `Christmas`, `Halloween`, `AprilFools`, or the corresponding numeric enum value. If omitted, the bundled template's active holiday is used.
 
-The holiday is independent of the seed: the same seed can produce the normal, Christmas, or Halloween room prefab variants. The current `14.2.7` export was based on `None`, but it includes the Christmas and Halloween variant references. A requested holiday is applied per room where a variant exists; rooms without a variant stay on their base prefab.
+The holiday is independent of the seed: the same seed can produce the normal, Christmas, or Halloween room prefab variants. The current `14.2.8` export was based on `None`, but it includes the Christmas and Halloween variant references. A requested holiday is applied per room where a variant exists; rooms without a variant stay on their base prefab.
 
 ```js
 const normal = generateMap(seed, { holiday: 'None' });
@@ -41,7 +41,7 @@ const christmas = generateMap(seed, { holiday: 'Christmas' });
 const halloween = generateMap(seed, { holiday: 'Halloween' });
 ```
 
-The package already contains the templates for SCP:SL `14.2.7 Release`.
+The package already contains the templates for SCP:SL `14.2.8 Release`.
 
 ## Output
 
