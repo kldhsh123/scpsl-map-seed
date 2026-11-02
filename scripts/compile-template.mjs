@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const sourcePath = new URL('../data/mapgen-raw-14.2.8.json', import.meta.url);
-const outputPath = new URL('../data/mapgen-compiled-14.2.8.json', import.meta.url);
+const sourcePath = new URL('../data/mapgen-raw-14.2.9.json', import.meta.url);
+const outputPath = new URL('../data/mapgen-compiled-14.2.9.json', import.meta.url);
 const source = JSON.parse(readFileSync(sourcePath, 'utf8'));
 
 function enumValue(value) {

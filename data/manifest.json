@@ -1,6 +1,6 @@
 {
-  "defaultVersion": "14.2.8",
+  "defaultVersion": "14.2.9",
   "versions": {
-    "14.2.8": "mapgen-compiled-14.2.8.json"
+    "14.2.9": "mapgen-compiled-14.2.9.json"
   }
 }
